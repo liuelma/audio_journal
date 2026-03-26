@@ -325,6 +325,40 @@
       const DB_VERSION = 1;
       const STORE = "entries";
 
+      const LS_FALLBACK_KEY = "journal_entries_v1";
+
+      function lsLoadAll() {
+        try {
+          const raw = localStorage.getItem(LS_FALLBACK_KEY);
+          const arr = raw ? JSON.parse(raw) : [];
+          return Array.isArray(arr) ? arr : [];
+        } catch (_) {
+          return [];
+        }
+      }
+
+      function lsSaveAll(entries) {
+        localStorage.setItem(LS_FALLBACK_KEY, JSON.stringify(entries || []));
+      }
+
+      async function addEntryFallback(entry) {
+        const all = lsLoadAll();
+        all.push(entry);
+        all.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+        lsSaveAll(all);
+      }
+
+      async function getAllEntriesFallback() {
+        const all = lsLoadAll();
+        all.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+        return all;
+      }
+
+      async function deleteEntryFallback(id) {
+        const all = lsLoadAll().filter((e) => e && e.id !== id);
+        lsSaveAll(all);
+      }
+
       function openDb() {
         return new Promise((resolve, reject) => {
           const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -340,37 +374,52 @@
       }
 
       async function addEntry(entry) {
-        const db = await openDb();
-        return new Promise((resolve, reject) => {
-          const tx = db.transaction(STORE, "readwrite");
-          tx.objectStore(STORE).add(entry);
-          tx.oncomplete = () => resolve();
-          tx.onerror = () => reject(tx.error);
-        });
+        try {
+          const db = await openDb();
+          return await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, "readwrite");
+            tx.objectStore(STORE).add(entry);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+        } catch (e) {
+          // iOS can block IndexedDB in some modes. Fall back to localStorage (text-only).
+          const safe = { ...entry };
+          if (safe.audio) safe.audio = null;
+          await addEntryFallback(safe);
+        }
       }
 
       async function getAllEntries() {
-        const db = await openDb();
-        return new Promise((resolve, reject) => {
-          const tx = db.transaction(STORE, "readonly");
-          const req = tx.objectStore(STORE).getAll();
-          req.onsuccess = () => {
-            const result = req.result || [];
-            result.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-            resolve(result);
-          };
-          req.onerror = () => reject(req.error);
-        });
+        try {
+          const db = await openDb();
+          return await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, "readonly");
+            const req = tx.objectStore(STORE).getAll();
+            req.onsuccess = () => {
+              const result = req.result || [];
+              result.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+              resolve(result);
+            };
+            req.onerror = () => reject(req.error);
+          });
+        } catch (e) {
+          return await getAllEntriesFallback();
+        }
       }
 
       async function deleteEntry(id) {
-        const db = await openDb();
-        return new Promise((resolve, reject) => {
-          const tx = db.transaction(STORE, "readwrite");
-          tx.objectStore(STORE).delete(id);
-          tx.oncomplete = () => resolve();
-          tx.onerror = () => reject(tx.error);
-        });
+        try {
+          const db = await openDb();
+          return await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, "readwrite");
+            tx.objectStore(STORE).delete(id);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+        } catch (e) {
+          await deleteEntryFallback(id);
+        }
       }
 
       // ===== Transcript -> bullets (local, no cloud) =====
@@ -659,27 +708,8 @@
       }
 
       function renderSummary(transcript, language = "en") {
-        const bullets = extractiveBullets(transcript, 3, language);
-        const keywords = topKeywords(transcript, 6, language);
-
-        summaryListEl.innerHTML = "";
-        for (const b of bullets) {
-          const li = document.createElement("li");
-          li.textContent = b;
-          summaryListEl.appendChild(li);
-        }
-
-        keywordsEl.innerHTML = "";
-        if (keywords.length) {
-          for (const k of keywords) {
-            const pill = document.createElement("span");
-            pill.className = "pill";
-            pill.textContent = k;
-            keywordsEl.appendChild(pill);
-          }
-        } else {
-          keywordsEl.textContent = "";
-        }
+        // Backwards-compatible wrapper; the UI now prefers structured bullets from speech segments.
+        renderStructuredBullets(transcript, language);
       }
 
       // ===== Speech recognition + recording =====
@@ -687,6 +717,24 @@
       let isRecording = false;
       let mediaRecorder = null;
       let audioChunks = [];
+      let currentLanguage = "en";
+      let manualStopRequested = false;
+      let finalSegments = [];
+      let interimSegment = "";
+      let restartAttempts = 0;
+      let lastUserStartTs = 0;
+
+      function nowMs() {
+        return Date.now ? Date.now() : new Date().getTime();
+      }
+
+      function debounce(fn, delayMs) {
+        let t = null;
+        return (...args) => {
+          if (t) clearTimeout(t);
+          t = setTimeout(() => fn(...args), delayMs);
+        };
+      }
 
       function setStatus(msg) {
         statusEl.textContent = msg || "";
@@ -696,21 +744,204 @@
         isRecording = recording;
         btnStart.disabled = recording;
         btnStop.disabled = !recording;
-        btnSave.disabled = true; // Enable after generate.
+        // Enable save based on transcript content (also allows manual edits).
+        btnSave.disabled = (transcriptEl.value || "").trim().length === 0;
       }
 
       function getSpeechRecognitionCtor() {
         return window.SpeechRecognition || window.webkitSpeechRecognition || null;
       }
 
+      function compileTranscript() {
+        const joined = finalSegments.join("\n").trim();
+        const interim = (interimSegment || "").trim();
+        if (!joined) return interim;
+        if (!interim) return joined;
+        return (joined + "\n" + interim).trim();
+      }
+
+      function renderStructuredBullets(transcript, language) {
+        const bullets = [];
+        const segments = finalSegments.map((s) => (s || "").trim()).filter(Boolean);
+
+        if (segments.length) {
+          for (const s of segments.slice(0, 10)) {
+            bullets.push(s);
+          }
+        } else {
+          // Fall back to extractive bullets if we don't have segment boundaries.
+          bullets.push(...extractiveBullets(transcript, 5, language));
+        }
+
+        // Clean up: prefer shorter bullets; clip overly long ones.
+        const clipped = bullets
+          .map((b) => String(b || "").trim())
+          .filter(Boolean)
+          .map((b) => (b.length > 220 ? b.slice(0, 217).trim() + "..." : b));
+
+        summaryListEl.innerHTML = "";
+        for (const b of clipped) {
+          const li = document.createElement("li");
+          li.textContent = b;
+          summaryListEl.appendChild(li);
+        }
+
+        const keywords = topKeywords(transcript, 6, language);
+        keywordsEl.innerHTML = "";
+        for (const k of keywords) {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.textContent = k;
+          keywordsEl.appendChild(pill);
+        }
+      }
+
+      async function startSpeechRecognition(SpeechCtor, language) {
+        recognition = new SpeechCtor();
+        recognition.lang = language === "zh" ? "zh-CN" : "en-US";
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+
+        // Some browsers support continuous mode; helps reduce stops on silence.
+        try {
+          recognition.continuous = true;
+        } catch (_) {}
+
+        recognition.onstart = () => {
+          restartAttempts = 0;
+          setStatus("Listening... (tap Stop when you're done)");
+        };
+
+        recognition.onerror = (event) => {
+          console.warn("Speech recognition error:", event);
+          // Some errors are expected on mobile (network/no-speech). We'll attempt restart unless user stopped.
+          setStatus("Transcription issue. If it stops, it will try to resume. You can also type and save.");
+          btnSave.disabled = (transcriptEl.value || "").trim().length === 0;
+        };
+
+        recognition.onresult = (event) => {
+          // Append final segments as separate lines (mimics "pause" boundaries),
+          // while keeping an interim line at the end.
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const res = event.results[i];
+            const txt = (res && res[0] && res[0].transcript) ? res[0].transcript.trim() : "";
+            if (!txt) continue;
+            if (res.isFinal) {
+              finalSegments.push(txt);
+              interimSegment = "";
+            } else {
+              interimSegment = txt;
+            }
+          }
+
+          const compiled = compileTranscript();
+          transcriptEl.value = compiled;
+          btnSave.disabled = compiled.trim().length === 0;
+
+          // Keep summary in sync while recording (lightweight / debounced).
+          scheduleSummaryRefresh();
+        };
+
+        recognition.onend = () => {
+          // iOS often ends recognition on a short pause. If the user didn't press Stop,
+          // we try to restart automatically until they stop or we hit the 5-minute cap.
+          if (manualStopRequested) {
+            finalizeAfterStop();
+            return;
+          }
+
+          if (!isRecording) {
+            finalizeAfterStop();
+            return;
+          }
+
+          const sinceStart = nowMs() - lastUserStartTs;
+          if (sinceStart >= 5 * 60 * 1000) {
+            finalizeAfterStop();
+            return;
+          }
+
+          restartAttempts += 1;
+          const backoff = Math.min(1200, 250 * restartAttempts);
+          setStatus("Paused detected. Resuming...");
+          setTimeout(() => {
+            if (!isRecording || manualStopRequested) return;
+            try {
+              recognition.start();
+            } catch (e) {
+              console.warn("Recognition restart failed:", e);
+              // If restart fails, still allow user to save what we have.
+              finalizeAfterStop();
+            }
+          }, backoff);
+        };
+
+        try {
+          recognition.start();
+        } catch (e) {
+          console.warn("Recognition start failed:", e);
+          throw e;
+        }
+      }
+
+      function finalizeAfterStop() {
+        // Generate summary from the current transcript and enable Save.
+        const t = (transcriptEl.value || "").trim();
+        if (t) {
+          try {
+            renderStructuredBullets(t, currentLanguage);
+            setStatus("Stopped. Review and save.");
+          } catch (e) {
+            console.warn("Summary generation failed:", e);
+            setStatus("Stopped. You can still save the transcript.");
+          }
+          btnSave.disabled = false;
+        } else {
+          setStatus("Stopped. No transcript captured yet.");
+          btnSave.disabled = true;
+        }
+        setRecordingUiState(false);
+
+        // Stop audio recorder if active.
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+          try {
+            mediaRecorder.stop();
+          } catch (_) {}
+        }
+      }
+
+      const scheduleSummaryRefresh = debounce(() => {
+        const t = (transcriptEl.value || "").trim();
+        if (!t) {
+          summaryListEl.innerHTML = "";
+          keywordsEl.innerHTML = "";
+          btnSave.disabled = true;
+          return;
+        }
+        // While editing, we rebuild bullets from the transcript. If we have segments, use them.
+        try {
+          renderStructuredBullets(t, currentLanguage);
+        } catch (_) {
+          // ignore
+        }
+        btnSave.disabled = false;
+      }, 250);
+
       async function startRecordingFlow() {
         const SpeechCtor = getSpeechRecognitionCtor();
         const keepAudio = !!keepAudioEl.checked;
         const language = (langSelectEl && langSelectEl.value) ? langSelectEl.value : "en";
 
+        // Reset draft state.
         transcriptEl.value = "";
         summaryListEl.innerHTML = "";
         keywordsEl.innerHTML = "";
+        finalSegments = [];
+        interimSegment = "";
+        manualStopRequested = false;
+        currentLanguage = language;
+        lastUserStartTs = nowMs();
+
         setStatus("Requesting permissions...");
 
         if (!SpeechCtor) {
@@ -744,69 +975,21 @@
           }
         }
 
-        // Use user-selected language for STT so transcripts are more likely correct.
-        const lang = language === "zh" ? "zh-CN" : "en-US";
-        recognition = new SpeechCtor();
-        recognition.lang = lang;
-        recognition.interimResults = true;
-        recognition.maxAlternatives = 1;
-
-        recognition.onstart = () => {
-          setStatus("Listening... speak naturally.");
-        };
-
-        recognition.onerror = (event) => {
-          console.warn("Speech recognition error:", event);
-          setStatus("Transcription error. You can edit transcript and save.");
-          // Enable save so you aren't blocked.
+        try {
+          await startSpeechRecognition(SpeechCtor, language);
+        } catch (e) {
+          setStatus("Could not start transcription. Try again, or type the transcript manually.");
+          setRecordingUiState(false);
           btnSave.disabled = false;
-          setRecordingUiState(false);
-        };
-
-        recognition.onresult = (event) => {
-          let full = "";
-          for (let i = 0; i < event.results.length; i++) {
-            full += event.results[i][0].transcript;
-          }
-          transcriptEl.value = full.trim();
-        };
-
-        recognition.onend = () => {
-          // onend fires when user stops; we rely on the "Stop & Generate" click to finalize.
-          // If it ends unexpectedly, we'll still allow "Save" if transcript exists.
-          const t = transcriptEl.value.trim();
-          if (!t) {
-            setStatus("Stopped. No transcript captured yet.");
-            btnSave.disabled = true;
-          } else {
-            // Generate in case Stop was triggered or recognition ended early.
-            try {
-              renderSummary(t, language);
-              setStatus("Stopped. Summary generated. Review and save.");
-              btnSave.disabled = false;
-            } catch (e) {
-              setStatus("Stopped, but summary generation failed. You can still save transcript.");
-              btnSave.disabled = false;
-            }
-          }
-          setRecordingUiState(false);
-
-          if (mediaRecorder && mediaRecorder.state !== "inactive") {
-            try {
-              mediaRecorder.stop();
-            } catch (e) {
-              // ignore
-            }
-          }
-        };
-
-        recognition.start();
+          return;
+        }
 
         // Hard cap around 5 minutes to match MVP scope.
         // iOS speech recognition may auto-stop earlier; that's fine.
         window.__mvpCapTimer = window.setTimeout(() => {
           if (recognition && isRecording) {
             try {
+              manualStopRequested = true;
               recognition.stop();
             } catch (_) {}
           }
@@ -823,6 +1006,7 @@
 
         // Stop speech recognition (triggers onend -> summary generation).
         try {
+          manualStopRequested = true;
           recognition && recognition.stop();
         } catch (e) {}
 
@@ -857,7 +1041,7 @@
         const language = (langSelectEl && langSelectEl.value) ? langSelectEl.value : "en";
         const createdAt = new Date().toISOString();
         const keywords = topKeywords(transcript, 6, language);
-        const bullets = extractiveBullets(transcript, 3, language);
+        const bullets = finalSegments.length ? finalSegments.slice(0, 10) : extractiveBullets(transcript, 5, language);
 
         const audioBlob = getAudioBlobIfKept();
 
@@ -872,9 +1056,14 @@
           audio: audioBlob ? audioBlob : null,
         };
 
-        await addEntry(entry);
-        setStatus("Saved to this device.");
-        await refreshEntries();
+        try {
+          await addEntry(entry);
+          setStatus("Saved to this device.");
+          await refreshEntries();
+        } catch (e) {
+          console.warn("Save failed:", e);
+          setStatus("Save failed (storage may be blocked). Try exiting Private Browsing, then reload.");
+        }
       }
 
       async function refreshEntries() {
@@ -943,7 +1132,10 @@
             if (langSelectEl) {
               langSelectEl.value = e.language || "en";
             }
-            renderSummary(e.transcript || "", e.language || "en");
+            // Reset segments; loaded entries may not have timing boundaries.
+            finalSegments = [];
+            interimSegment = "";
+            renderStructuredBullets(e.transcript || "", e.language || "en");
             btnSave.disabled = false;
             setStatus("Loaded entry into editor. Edit and save as a new entry if needed.");
             window.scrollTo({ top: 0, behavior: "smooth" });
@@ -975,6 +1167,9 @@
         keywordsEl.innerHTML = "";
         setStatus("");
         btnSave.disabled = true;
+        finalSegments = [];
+        interimSegment = "";
+        manualStopRequested = false;
       }
 
       function escapeHtml(s) {
@@ -1007,10 +1202,20 @@
         btnClear.addEventListener("click", clearDraft);
 
         searchEl.addEventListener("input", refreshEntries);
+        transcriptEl.addEventListener("input", () => {
+          // If the user edits the transcript manually, keep summary + Save button in sync.
+          currentLanguage = (langSelectEl && langSelectEl.value) ? langSelectEl.value : currentLanguage;
+          scheduleSummaryRefresh();
+        });
+        langSelectEl && langSelectEl.addEventListener("change", () => {
+          currentLanguage = (langSelectEl && langSelectEl.value) ? langSelectEl.value : currentLanguage;
+          scheduleSummaryRefresh();
+        });
 
         btnSave.disabled = true;
         clearDraft();
         await refreshEntries();
+        setStatus("Ready.");
       }
 
       init().catch((e) => {
