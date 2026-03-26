@@ -1,0 +1,1024 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" content="#0b1220" />
+
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <title>Journal Recorder (MVP)</title>
+
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1220;
+        --card: rgba(255, 255, 255, 0.06);
+        --card2: rgba(255, 255, 255, 0.08);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.65);
+        --danger: #ff4d4d;
+        --accent: #6ea8fe;
+        --accent2: #8cffc1;
+        --border: rgba(255, 255, 255, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+          Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: radial-gradient(1200px 600px at 30% -10%, #1a2a52 0%, var(--bg) 60%);
+        color: var(--text);
+      }
+
+      header {
+        padding: 18px 16px 12px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      header h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      header p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 12.5px;
+        line-height: 1.35;
+      }
+
+      .wrap {
+        padding: 0 16px 28px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        margin-bottom: 12px;
+        backdrop-filter: blur(8px);
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        padding: 10px 12px;
+        border-radius: 12px;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      button.primary {
+        border-color: rgba(110, 168, 254, 0.55);
+        background: rgba(110, 168, 254, 0.22);
+      }
+
+      button.primary:disabled,
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 110px;
+        resize: vertical;
+        border-radius: 12px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.25);
+        color: var(--text);
+        outline: none;
+      }
+
+      .muted {
+        color: var(--muted);
+        font-size: 12.5px;
+        line-height: 1.35;
+      }
+
+      .pill {
+        display: inline-flex;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        font-size: 12px;
+        color: var(--muted);
+        margin-right: 6px;
+        margin-bottom: 6px;
+      }
+
+      ul {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+
+      li {
+        margin: 6px 0;
+        color: rgba(255, 255, 255, 0.9);
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-start;
+        margin-top: 12px;
+      }
+
+      .status {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 10px;
+        min-height: 18px;
+      }
+
+      .searchRow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 8px;
+      }
+
+      input[type="search"] {
+        width: 100%;
+        border-radius: 12px;
+        padding: 11px 12px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.25);
+        color: var(--text);
+        outline: none;
+      }
+
+      .entry {
+        padding: 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.045);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        margin-bottom: 10px;
+      }
+
+      .entryTop {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .entry h3 {
+        margin: 0;
+        font-size: 14px;
+      }
+
+      .entry p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 12.5px;
+        line-height: 1.35;
+      }
+
+      .danger {
+        color: #ffb3b3;
+        border-color: rgba(255, 77, 77, 0.45);
+        background: rgba(255, 77, 77, 0.12);
+      }
+
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Journal Recorder</h1>
+        <p>
+          Record up to ~5 minutes. Transcript + bullet summary are generated locally and saved on
+          this device for later search.
+        </p>
+      </div>
+      <div class="muted" id="capabilities">Initializing...</div>
+    </header>
+
+    <div class="wrap">
+      <div class="card">
+        <div class="row">
+          <div class="muted">
+            Tip: Use a quiet room for best transcription. If speech recognition is unavailable,
+            you can type your transcript manually.
+          </div>
+        </div>
+
+        <div class="actions">
+          <div>
+            <label class="muted" style="display: inline-flex; gap: 8px; align-items: center;">
+              <input type="checkbox" id="keepAudio" />
+              Keep audio on-device (uses more storage)
+            </label>
+          </div>
+          <div>
+            <label class="muted" style="display: inline-flex; gap: 8px; align-items: center;">
+              <span>Language:</span>
+              <select id="langSelect" style="border-radius: 12px; padding: 8px 10px; border: 1px solid var(--border); background: rgba(0, 0, 0, 0.25); color: var(--text); outline: none;">
+                <option value="en" selected>English</option>
+                <option value="zh">Mandarin Chinese</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top: 12px;">
+          <button id="btnStart" class="primary" type="button">Start Recording</button>
+          <button id="btnStop" type="button" disabled>Stop &amp; Generate</button>
+        </div>
+
+        <div id="status" class="status"></div>
+      </div>
+
+      <div class="card">
+        <div class="muted" style="font-weight: 700; margin-bottom: 8px;">Transcript</div>
+        <textarea id="transcript" placeholder="Your transcript will appear here..."></textarea>
+        <div class="muted" style="margin-top: 10px;">
+          You can edit the transcript before saving.
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="muted" style="font-weight: 700; margin-bottom: 8px;">Summary (bullets)</div>
+        <div id="keywords" class="muted"></div>
+        <ul id="summaryList"></ul>
+
+        <div class="actions">
+          <button id="btnSave" class="primary" type="button" disabled>Save Entry</button>
+          <button id="btnClear" type="button">Clear Draft</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div class="muted" style="font-weight: 700;">Search &amp; History</div>
+          <div class="muted" id="entriesCount"></div>
+        </div>
+        <div class="searchRow">
+          <input
+            id="search"
+            type="search"
+            placeholder="Search keywords in transcript/summary..."
+            autocomplete="off"
+          />
+        </div>
+        <div id="entries"></div>
+      </div>
+
+      <div class="muted" style="text-align: center; padding: 10px 0 0;">
+        Hosting: you can upload this folder to <a href="https://pages.github.com/" target="_blank" rel="noreferrer">GitHub Pages</a> (free) and install it on iOS.
+      </div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+
+      const capEl = $("capabilities");
+      const statusEl = $("status");
+      const transcriptEl = $("transcript");
+      const summaryListEl = $("summaryList");
+      const keywordsEl = $("keywords");
+      const btnStart = $("btnStart");
+      const btnStop = $("btnStop");
+      const btnSave = $("btnSave");
+      const btnClear = $("btnClear");
+      const keepAudioEl = $("keepAudio");
+      const langSelectEl = $("langSelect");
+      const entriesEl = $("entries");
+      const entriesCountEl = $("entriesCount");
+      const searchEl = $("search");
+
+      // ===== IndexedDB (on-device storage) =====
+      const DB_NAME = "journal-db";
+      const DB_VERSION = 1;
+      const STORE = "entries";
+
+      function openDb() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(DB_NAME, DB_VERSION);
+          req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(STORE)) {
+              db.createObjectStore(STORE, { keyPath: "id" });
+            }
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async function addEntry(entry) {
+        const db = await openDb();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE, "readwrite");
+          tx.objectStore(STORE).add(entry);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      async function getAllEntries() {
+        const db = await openDb();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE, "readonly");
+          const req = tx.objectStore(STORE).getAll();
+          req.onsuccess = () => {
+            const result = req.result || [];
+            result.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+            resolve(result);
+          };
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async function deleteEntry(id) {
+        const db = await openDb();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE, "readwrite");
+          tx.objectStore(STORE).delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      // ===== Transcript -> bullets (local, no cloud) =====
+      const STOPWORDS = new Set([
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "but",
+        "by",
+        "for",
+        "from",
+        "has",
+        "he",
+        "in",
+        "is",
+        "it",
+        "its",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "to",
+        "was",
+        "were",
+        "will",
+        "with",
+        "i",
+        "you",
+        "we",
+        "they",
+        "them",
+        "this",
+        "those",
+        "these",
+        "my",
+        "your",
+        "our",
+        "me",
+        "im",
+        "dont",
+        "do",
+        "does",
+        "did",
+        "so",
+        "if",
+        "then",
+        "than",
+        "just",
+        "like",
+        "about",
+        "into",
+        "up",
+        "down",
+        "out",
+        "over",
+        "again",
+        "very",
+        "can",
+        "could",
+        "should",
+        "would",
+        "there",
+        "here",
+        "what",
+        "when",
+        "where",
+        "why",
+        "how",
+      ]);
+
+      const STOPWORDS_ZH = new Set([
+        "的",
+        "了",
+        "是",
+        "我",
+        "你",
+        "他",
+        "她",
+        "它",
+        "们",
+        "在",
+        "和",
+        "就",
+        "都",
+        "而",
+        "及",
+        "与",
+        "着",
+        "或",
+        "并",
+        "但",
+        "能",
+        "会",
+        "要",
+        "也",
+        "很",
+        "更",
+        "最",
+        "把",
+        "被",
+        "给",
+        "从",
+        "对",
+        "到",
+        "向",
+        "里",
+        "外",
+        "上",
+        "下",
+        "前",
+        "后",
+        "中",
+        "之",
+        "这",
+        "那",
+        "哪",
+        "吗",
+        "呢",
+        "吧",
+        "啊",
+      ]);
+
+      function normalizeText(s, language) {
+        const input = (s || "").replace(/[\u2019]/g, "'");
+        if (language === "zh") {
+          // Keep CJK + common punctuation so sentence splitting stays meaningful.
+          return input
+            .replace(/[^0-9A-Za-z\u4E00-\u9FFF\s.,!?，。？！'\-]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+        }
+        return input
+          .replace(/[^A-Za-z0-9\s.,!?'-]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+
+      function tokenizeWords(s, language) {
+        const input = (s || "");
+        if (language === "zh") {
+          const chars = input.match(/[\u4E00-\u9FFF]/g) || [];
+          return chars.filter((c) => c && !STOPWORDS_ZH.has(c));
+        }
+        const words = input.toLowerCase().match(/[a-z0-9']+/g);
+        return words || [];
+      }
+
+      function splitSentences(s, language) {
+        const cleaned = normalizeText(s, language);
+        if (!cleaned) return [];
+
+        if (language === "zh") {
+          const noBreaks = cleaned.replace(/\n+/g, "");
+          // Split by Chinese punctuation too.
+          const parts = noBreaks
+            .split(/(?<=[。！？!?])/g)
+            .map((x) => x.trim())
+            .filter(Boolean);
+
+          if (parts.length <= 1 && noBreaks.length > 140) {
+            const chunkSize = 140;
+            const chunks = [];
+            for (let i = 0; i < noBreaks.length; i += chunkSize) {
+              chunks.push(noBreaks.slice(i, i + chunkSize).trim());
+            }
+            return chunks.filter(Boolean);
+          }
+          return parts;
+        }
+
+        // English: rough sentence splitting works well enough for journal text.
+        const parts = cleaned
+          .replace(/\n+/g, " ")
+          .split(/(?<=[.!?])\s+|(?<=\n)\s+/g)
+          .map((x) => x.trim())
+          .filter(Boolean);
+
+        // Fallback: if no punctuation, chunk by length.
+        if (parts.length <= 1 && cleaned.length > 180) {
+          const chunkSize = 180;
+          const chunks = [];
+          for (let i = 0; i < cleaned.length; i += chunkSize) {
+            chunks.push(cleaned.slice(i, i + chunkSize).trim());
+          }
+          return chunks.filter(Boolean);
+        }
+        return parts;
+      }
+
+      function buildWordFreq(words, language) {
+        const freq = new Map();
+        const minLen = language === "zh" ? 1 : 2;
+        for (const w of words) {
+          if (!w || w.length < minLen) continue;
+          if (language !== "zh" && STOPWORDS.has(w)) continue;
+          freq.set(w, (freq.get(w) || 0) + 1);
+        }
+        return freq;
+      }
+
+      function topKeywords(transcript, n = 6, language = "en") {
+        if (language === "zh") {
+          const chars = (transcript || "").match(/[\u4E00-\u9FFF]/g) || [];
+          const filtered = chars.filter((c) => c && !STOPWORDS_ZH.has(c));
+          if (filtered.length === 0) return [];
+
+          const bigramFreq = new Map();
+          for (let i = 0; i < filtered.length - 1; i++) {
+            const bg = filtered[i] + filtered[i + 1];
+            if (!bg) continue;
+            bigramFreq.set(bg, (bigramFreq.get(bg) || 0) + 1);
+          }
+
+          const sortedBigrams = Array.from(bigramFreq.entries()).sort((a, b) => b[1] - a[1]);
+          const topBigrams = sortedBigrams.slice(0, n).map(([w]) => w);
+
+          // If bigrams are sparse, fall back to single-character keywords.
+          if (topBigrams.length >= n) return topBigrams;
+
+          const singleFreq = new Map();
+          for (const c of filtered) {
+            singleFreq.set(c, (singleFreq.get(c) || 0) + 1);
+          }
+          const topSingles = Array.from(singleFreq.entries())
+            .sort((a, b) => b[1] - a[1])
+            .map(([w]) => w);
+
+          const merged = [...topBigrams, ...topSingles].filter(Boolean);
+          const uniq = [];
+          const seen = new Set();
+          for (const k of merged) {
+            if (seen.has(k)) continue;
+            seen.add(k);
+            uniq.push(k);
+            if (uniq.length >= n) break;
+          }
+          return uniq;
+        }
+
+        const words = tokenizeWords(transcript, language);
+        const freq = buildWordFreq(words, language);
+        const sorted = Array.from(freq.entries()).sort((a, b) => b[1] - a[1]);
+        return sorted.slice(0, n).map(([w]) => w);
+      }
+
+      function extractiveBullets(transcript, bulletCount = 3, language = "en") {
+        const sentences = splitSentences(transcript, language);
+        if (sentences.length === 0) return [];
+        const tokens = tokenizeWords(transcript, language);
+        const freq = buildWordFreq(tokens, language);
+
+        function scoreSentence(sentence) {
+          const w = tokenizeWords(sentence, language);
+          const minTokens = language === "zh" ? 3 : 4;
+          if (w.length < minTokens) return 0;
+          let score = 0;
+          for (const token of w) {
+            score += freq.get(token) || 0;
+          }
+          // Slight preference for earlier content to keep bullets action-ish.
+          return score;
+        }
+
+        const scored = sentences
+          .map((s) => ({ s, score: scoreSentence(s) }))
+          .sort((a, b) => b.score - a.score);
+
+        const chosen = [];
+        for (const item of scored) {
+          const candidate = item.s.trim();
+          if (!candidate) continue;
+          const prefix = candidate.slice(0, 42).toLowerCase();
+          const already = chosen.some((c) => c.slice(0, 42).toLowerCase() === prefix);
+          if (already) continue;
+          chosen.push(candidate);
+          if (chosen.length >= bulletCount) break;
+        }
+
+        if (chosen.length === 0) return sentences.slice(0, bulletCount);
+        return chosen;
+      }
+
+      function renderSummary(transcript, language = "en") {
+        const bullets = extractiveBullets(transcript, 3, language);
+        const keywords = topKeywords(transcript, 6, language);
+
+        summaryListEl.innerHTML = "";
+        for (const b of bullets) {
+          const li = document.createElement("li");
+          li.textContent = b;
+          summaryListEl.appendChild(li);
+        }
+
+        keywordsEl.innerHTML = "";
+        if (keywords.length) {
+          for (const k of keywords) {
+            const pill = document.createElement("span");
+            pill.className = "pill";
+            pill.textContent = k;
+            keywordsEl.appendChild(pill);
+          }
+        } else {
+          keywordsEl.textContent = "";
+        }
+      }
+
+      // ===== Speech recognition + recording =====
+      let recognition = null;
+      let isRecording = false;
+      let mediaRecorder = null;
+      let audioChunks = [];
+
+      function setStatus(msg) {
+        statusEl.textContent = msg || "";
+      }
+
+      function setRecordingUiState(recording) {
+        isRecording = recording;
+        btnStart.disabled = recording;
+        btnStop.disabled = !recording;
+        btnSave.disabled = true; // Enable after generate.
+      }
+
+      function getSpeechRecognitionCtor() {
+        return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+      }
+
+      async function startRecordingFlow() {
+        const SpeechCtor = getSpeechRecognitionCtor();
+        const keepAudio = !!keepAudioEl.checked;
+        const language = (langSelectEl && langSelectEl.value) ? langSelectEl.value : "en";
+
+        transcriptEl.value = "";
+        summaryListEl.innerHTML = "";
+        keywordsEl.innerHTML = "";
+        setStatus("Requesting permissions...");
+
+        if (!SpeechCtor) {
+          capEl.textContent = "Speech recognition not available in this browser.";
+          setStatus("Speech recognition is unavailable. You can type the transcript manually.");
+          btnStop.disabled = true;
+          btnSave.disabled = false;
+          return;
+        }
+
+        setRecordingUiState(true);
+
+        // Optional audio recording (for later upgrade to video, and for manual review).
+        // Default is NOT keeping it to minimize storage space.
+        if (keepAudio) {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioChunks = [];
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = (e) => {
+              if (e.data && e.data.size > 0) audioChunks.push(e.data);
+            };
+            mediaRecorder.onstop = () => {
+              // Stop tracks to avoid mic staying active.
+              stream.getTracks().forEach((t) => t.stop());
+            };
+            mediaRecorder.start();
+          } catch (err) {
+            console.warn("Audio recorder start failed:", err);
+            setStatus("Could not start audio recording; proceeding with transcription only.");
+          }
+        }
+
+        // Use user-selected language for STT so transcripts are more likely correct.
+        const lang = language === "zh" ? "zh-CN" : "en-US";
+        recognition = new SpeechCtor();
+        recognition.lang = lang;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+          setStatus("Listening... speak naturally.");
+        };
+
+        recognition.onerror = (event) => {
+          console.warn("Speech recognition error:", event);
+          setStatus("Transcription error. You can edit transcript and save.");
+          // Enable save so you aren't blocked.
+          btnSave.disabled = false;
+          setRecordingUiState(false);
+        };
+
+        recognition.onresult = (event) => {
+          let full = "";
+          for (let i = 0; i < event.results.length; i++) {
+            full += event.results[i][0].transcript;
+          }
+          transcriptEl.value = full.trim();
+        };
+
+        recognition.onend = () => {
+          // onend fires when user stops; we rely on the "Stop & Generate" click to finalize.
+          // If it ends unexpectedly, we'll still allow "Save" if transcript exists.
+          const t = transcriptEl.value.trim();
+          if (!t) {
+            setStatus("Stopped. No transcript captured yet.");
+            btnSave.disabled = true;
+          } else {
+            // Generate in case Stop was triggered or recognition ended early.
+            try {
+              renderSummary(t, language);
+              setStatus("Stopped. Summary generated. Review and save.");
+              btnSave.disabled = false;
+            } catch (e) {
+              setStatus("Stopped, but summary generation failed. You can still save transcript.");
+              btnSave.disabled = false;
+            }
+          }
+          setRecordingUiState(false);
+
+          if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            try {
+              mediaRecorder.stop();
+            } catch (e) {
+              // ignore
+            }
+          }
+        };
+
+        recognition.start();
+
+        // Hard cap around 5 minutes to match MVP scope.
+        // iOS speech recognition may auto-stop earlier; that's fine.
+        window.__mvpCapTimer = window.setTimeout(() => {
+          if (recognition && isRecording) {
+            try {
+              recognition.stop();
+            } catch (_) {}
+          }
+        }, 5 * 60 * 1000);
+      }
+
+      async function stopRecordingFlow() {
+        if (!isRecording) return;
+        setStatus("Stopping...");
+        if (window.__mvpCapTimer) {
+          clearTimeout(window.__mvpCapTimer);
+          window.__mvpCapTimer = null;
+        }
+
+        // Stop speech recognition (triggers onend -> summary generation).
+        try {
+          recognition && recognition.stop();
+        } catch (e) {}
+
+        // Stop audio recorder if active.
+        try {
+          if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+          }
+        } catch (e) {}
+      }
+
+      function getAudioBlobIfKept() {
+        const keepAudio = !!keepAudioEl.checked;
+        if (!keepAudio) return null;
+        if (!audioChunks || audioChunks.length === 0) return null;
+        // Create a single Blob from recorded chunks.
+        return new Blob(audioChunks, { type: mediaRecorder && mediaRecorder.mimeType ? mediaRecorder.mimeType : "audio/webm" });
+      }
+
+      // ===== Save / Clear / Load history =====
+      function uid() {
+        return "id_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
+      }
+
+      async function handleSave() {
+        const transcript = (transcriptEl.value || "").trim();
+        if (!transcript) {
+          setStatus("Nothing to save yet.");
+          return;
+        }
+
+        const language = (langSelectEl && langSelectEl.value) ? langSelectEl.value : "en";
+        const createdAt = new Date().toISOString();
+        const keywords = topKeywords(transcript, 6, language);
+        const bullets = extractiveBullets(transcript, 3, language);
+
+        const audioBlob = getAudioBlobIfKept();
+
+        const entry = {
+          id: uid(),
+          createdAt,
+          language,
+          transcript,
+          summaryBullets: bullets,
+          keywords,
+          // Store audio only if user opts in, to minimize storage by default.
+          audio: audioBlob ? audioBlob : null,
+        };
+
+        await addEntry(entry);
+        setStatus("Saved to this device.");
+        await refreshEntries();
+      }
+
+      async function refreshEntries() {
+        const all = await getAllEntries();
+        const q = (searchEl.value || "").trim().toLowerCase();
+        entriesCountEl.textContent = all.length ? `${all.length} entries` : "";
+
+        if (!all.length) {
+          entriesEl.innerHTML = `<div class="muted">No entries yet.</div>`;
+          return;
+        }
+
+        const filtered = q
+          ? all.filter((e) => {
+              const hay = [
+                e.createdAt || "",
+                e.transcript || "",
+                (e.summaryBullets || []).join(" "),
+                (e.keywords || []).join(" "),
+              ]
+                .join(" ")
+                .toLowerCase();
+              return hay.includes(q);
+            })
+          : all;
+
+        entriesEl.innerHTML = "";
+        if (!filtered.length) {
+          entriesEl.innerHTML = `<div class="muted">No matches for "${escapeHtml(q)}".</div>`;
+          return;
+        }
+
+        for (const e of filtered.slice(0, 50)) {
+          const box = document.createElement("div");
+          box.className = "entry";
+
+          const date = new Date(e.createdAt);
+          const pretty = isNaN(date.getTime()) ? (e.createdAt || "") : date.toLocaleString();
+
+          const top = document.createElement("div");
+          top.className = "entryTop";
+
+          const left = document.createElement("div");
+          const h3 = document.createElement("h3");
+          h3.textContent = pretty || "Untitled";
+          left.appendChild(h3);
+
+          const p = document.createElement("p");
+          const firstBullet = (e.summaryBullets && e.summaryBullets[0]) ? e.summaryBullets[0] : "";
+          p.textContent = firstBullet
+            ? `Summary: ${firstBullet}`
+            : "No summary yet (transcription may have been empty).";
+          left.appendChild(p);
+
+          top.appendChild(left);
+
+          const right = document.createElement("div");
+          right.style.display = "flex";
+          right.style.flexDirection = "column";
+          right.style.gap = "8px";
+
+          const viewBtn = document.createElement("button");
+          viewBtn.textContent = "View";
+          viewBtn.onclick = () => {
+            transcriptEl.value = e.transcript || "";
+            if (langSelectEl) {
+              langSelectEl.value = e.language || "en";
+            }
+            renderSummary(e.transcript || "", e.language || "en");
+            btnSave.disabled = false;
+            setStatus("Loaded entry into editor. Edit and save as a new entry if needed.");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          };
+
+          const delBtn = document.createElement("button");
+          delBtn.textContent = "Delete";
+          delBtn.className = "danger";
+          delBtn.onclick = async () => {
+            const ok = window.confirm("Delete this entry from this device?");
+            if (!ok) return;
+            await deleteEntry(e.id);
+            await refreshEntries();
+          };
+
+          right.appendChild(viewBtn);
+          right.appendChild(delBtn);
+          top.appendChild(right);
+
+          box.appendChild(top);
+
+          entriesEl.appendChild(box);
+        }
+      }
+
+      function clearDraft() {
+        transcriptEl.value = "";
+        summaryListEl.innerHTML = "";
+        keywordsEl.innerHTML = "";
+        setStatus("");
+        btnSave.disabled = true;
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => {
+          switch (c) {
+            case "&":
+              return "&amp;";
+            case "<":
+              return "&lt;";
+            case ">":
+              return "&gt;";
+            case '"':
+              return "&quot;";
+            case "'":
+              return "&#039;";
+            default:
+              return c;
+          }
+        });
+      }
+
+      // ===== Init =====
+      async function init() {
+        const SpeechCtor = getSpeechRecognitionCtor();
+        capEl.textContent = SpeechCtor ? "Speech recognition available on this device." : "Speech recognition not available here.";
+
+        btnStart.addEventListener("click", startRecordingFlow);
+        btnStop.addEventListener("click", stopRecordingFlow);
+        btnSave.addEventListener("click", handleSave);
+        btnClear.addEventListener("click", clearDraft);
+
+        searchEl.addEventListener("input", refreshEntries);
+
+        btnSave.disabled = true;
+        clearDraft();
+        await refreshEntries();
+      }
+
+      init().catch((e) => {
+        console.error(e);
+        capEl.textContent = "Initialization failed. Open DevTools to debug.";
+        setStatus("Initialization failed.");
+      });
+    </script>
+  </body>
+</html>
+
