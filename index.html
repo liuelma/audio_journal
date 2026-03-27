@@ -237,6 +237,16 @@
         </div>
 
         <div class="actions">
+          <div style="flex: 1; min-width: 220px;">
+            <label class="muted" style="display: block; margin-bottom: 6px;">Title</label>
+            <input
+              id="title"
+              type="text"
+              placeholder="Auto-suggested (you can edit)"
+              autocomplete="off"
+              style="width: 100%; border-radius: 12px; padding: 11px 12px; border: 1px solid var(--border); background: rgba(0, 0, 0, 0.25); color: var(--text); outline: none;"
+            />
+          </div>
           <div>
             <label class="muted" style="display: inline-flex; gap: 8px; align-items: center;">
               <input type="checkbox" id="keepAudio" />
@@ -273,9 +283,10 @@
       <div class="card">
         <div class="muted" style="font-weight: 700; margin-bottom: 8px;">Summary (bullets)</div>
         <div id="keywords" class="muted"></div>
-        <ul id="summaryList"></ul>
+        <textarea id="summaryText" placeholder="- Bullet 1&#10;- Bullet 2&#10;- Bullet 3"></textarea>
 
         <div class="actions">
+          <button id="btnRegenerate" type="button">Regenerate Summary</button>
           <button id="btnSave" class="primary" type="button" disabled>Save Entry</button>
           <button id="btnClear" type="button">Clear Draft</button>
         </div>
@@ -308,10 +319,12 @@
       const capEl = $("capabilities");
       const statusEl = $("status");
       const transcriptEl = $("transcript");
-      const summaryListEl = $("summaryList");
+      const summaryTextEl = $("summaryText");
       const keywordsEl = $("keywords");
+      const titleEl = $("title");
       const btnStart = $("btnStart");
       const btnStop = $("btnStop");
+      const btnRegenerate = $("btnRegenerate");
       const btnSave = $("btnSave");
       const btnClear = $("btnClear");
       const keepAudioEl = $("keepAudio");
@@ -723,6 +736,8 @@
       let interimSegment = "";
       let restartAttempts = 0;
       let lastUserStartTs = 0;
+      let summaryDirty = false;
+      let titleDirty = false;
 
       function nowMs() {
         return Date.now ? Date.now() : new Date().getTime();
@@ -779,12 +794,8 @@
           .filter(Boolean)
           .map((b) => (b.length > 220 ? b.slice(0, 217).trim() + "..." : b));
 
-        summaryListEl.innerHTML = "";
-        for (const b of clipped) {
-          const li = document.createElement("li");
-          li.textContent = b;
-          summaryListEl.appendChild(li);
-        }
+        // Write into editable textarea in "- " format.
+        summaryTextEl.value = clipped.length ? clipped.map((b) => `- ${b}`).join("\n") : "";
 
         const keywords = topKeywords(transcript, 6, language);
         keywordsEl.innerHTML = "";
@@ -794,6 +805,28 @@
           pill.textContent = k;
           keywordsEl.appendChild(pill);
         }
+      }
+
+      function parseSummaryBullets() {
+        const raw = (summaryTextEl.value || "").split("\n");
+        const bullets = [];
+        for (const line of raw) {
+          const t = String(line || "").trim();
+          if (!t) continue;
+          bullets.push(t.replace(/^[\-\*\u2022]\s*/, ""));
+        }
+        return bullets.filter(Boolean);
+      }
+
+      function suggestTitleFromKeywords(transcript, language) {
+        const kws = topKeywords(transcript, language === "zh" ? 4 : 6, language);
+        if (!kws.length) return "";
+        if (language === "zh") {
+          // Prefer 1-2 short phrases.
+          return kws.slice(0, 2).join(" ");
+        }
+        const picked = kws.slice(0, 3).map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w));
+        return picked.join(" • ");
       }
 
       async function startSpeechRecognition(SpeechCtor, language) {
@@ -913,16 +946,20 @@
       const scheduleSummaryRefresh = debounce(() => {
         const t = (transcriptEl.value || "").trim();
         if (!t) {
-          summaryListEl.innerHTML = "";
+          summaryTextEl.value = "";
           keywordsEl.innerHTML = "";
           btnSave.disabled = true;
           return;
         }
-        // While editing, we rebuild bullets from the transcript. If we have segments, use them.
-        try {
-          renderStructuredBullets(t, currentLanguage);
-        } catch (_) {
-          // ignore
+        // While editing, auto-regenerate unless user has manually edited summary/title.
+        if (!summaryDirty) {
+          try {
+            renderStructuredBullets(t, currentLanguage);
+          } catch (_) {}
+        }
+        if (!titleDirty) {
+          const suggested = suggestTitleFromKeywords(t, currentLanguage);
+          if (suggested) titleEl.value = suggested;
         }
         btnSave.disabled = false;
       }, 250);
@@ -934,13 +971,16 @@
 
         // Reset draft state.
         transcriptEl.value = "";
-        summaryListEl.innerHTML = "";
+        summaryTextEl.value = "";
         keywordsEl.innerHTML = "";
         finalSegments = [];
         interimSegment = "";
         manualStopRequested = false;
         currentLanguage = language;
         lastUserStartTs = nowMs();
+        summaryDirty = false;
+        titleDirty = false;
+        if (titleEl) titleEl.value = "";
 
         setStatus("Requesting permissions...");
 
@@ -1039,9 +1079,10 @@
         }
 
         const language = (langSelectEl && langSelectEl.value) ? langSelectEl.value : "en";
+        const title = (titleEl && titleEl.value) ? String(titleEl.value).trim() : "";
         const createdAt = new Date().toISOString();
         const keywords = topKeywords(transcript, 6, language);
-        const bullets = finalSegments.length ? finalSegments.slice(0, 10) : extractiveBullets(transcript, 5, language);
+        const bullets = parseSummaryBullets();
 
         const audioBlob = getAudioBlobIfKept();
 
@@ -1049,6 +1090,7 @@
           id: uid(),
           createdAt,
           language,
+          title: title || suggestTitleFromKeywords(transcript, language) || createdAt,
           transcript,
           summaryBullets: bullets,
           keywords,
@@ -1108,14 +1150,15 @@
 
           const left = document.createElement("div");
           const h3 = document.createElement("h3");
-          h3.textContent = pretty || "Untitled";
+          h3.textContent = (e.title || "").trim() || "Untitled";
           left.appendChild(h3);
 
           const p = document.createElement("p");
           const firstBullet = (e.summaryBullets && e.summaryBullets[0]) ? e.summaryBullets[0] : "";
+          const when = pretty ? ` • ${pretty}` : "";
           p.textContent = firstBullet
-            ? `Summary: ${firstBullet}`
-            : "No summary yet (transcription may have been empty).";
+            ? `Summary: ${firstBullet}${when}`
+            : `No summary yet${when}`;
           left.appendChild(p);
 
           top.appendChild(left);
@@ -1132,9 +1175,12 @@
             if (langSelectEl) {
               langSelectEl.value = e.language || "en";
             }
+            if (titleEl) titleEl.value = e.title || "";
             // Reset segments; loaded entries may not have timing boundaries.
             finalSegments = [];
             interimSegment = "";
+            summaryDirty = false;
+            titleDirty = false;
             renderStructuredBullets(e.transcript || "", e.language || "en");
             btnSave.disabled = false;
             setStatus("Loaded entry into editor. Edit and save as a new entry if needed.");
@@ -1163,13 +1209,16 @@
 
       function clearDraft() {
         transcriptEl.value = "";
-        summaryListEl.innerHTML = "";
+        summaryTextEl.value = "";
         keywordsEl.innerHTML = "";
         setStatus("");
         btnSave.disabled = true;
         finalSegments = [];
         interimSegment = "";
         manualStopRequested = false;
+        summaryDirty = false;
+        titleDirty = false;
+        if (titleEl) titleEl.value = "";
       }
 
       function escapeHtml(s) {
@@ -1198,6 +1247,11 @@
 
         btnStart.addEventListener("click", startRecordingFlow);
         btnStop.addEventListener("click", stopRecordingFlow);
+        btnRegenerate.addEventListener("click", () => {
+          summaryDirty = false;
+          const t = (transcriptEl.value || "").trim();
+          if (t) renderStructuredBullets(t, currentLanguage);
+        });
         btnSave.addEventListener("click", handleSave);
         btnClear.addEventListener("click", clearDraft);
 
@@ -1206,6 +1260,13 @@
           // If the user edits the transcript manually, keep summary + Save button in sync.
           currentLanguage = (langSelectEl && langSelectEl.value) ? langSelectEl.value : currentLanguage;
           scheduleSummaryRefresh();
+        });
+        summaryTextEl.addEventListener("input", () => {
+          summaryDirty = true;
+          btnSave.disabled = (transcriptEl.value || "").trim().length === 0;
+        });
+        titleEl.addEventListener("input", () => {
+          titleDirty = true;
         });
         langSelectEl && langSelectEl.addEventListener("change", () => {
           currentLanguage = (langSelectEl && langSelectEl.value) ? langSelectEl.value : currentLanguage;
