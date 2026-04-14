@@ -1200,16 +1200,20 @@
       function updateAiButtonState() {
         if (!btnAiGenerate) return;
         const { base, model } = getAiConfig();
-        const hasText = (transcriptEl.value || "").trim().length > 0;
+        const hasTranscript = (transcriptEl.value || "").trim().length > 0;
+        const hasSummary = (summaryTextEl.value || "").trim().length > 0;
+        const hasText = hasTranscript || hasSummary;
         const ok = !!(base && model && hasText);
         btnAiGenerate.disabled = !ok;
-        btnAiGenerate.title = ok ? "Call your self-hosted model" : "Set API base + model below, and add a transcript";
+        btnAiGenerate.title = ok ? "Call your self-hosted model" : "Set API base + model below, and add transcript/summary text";
       }
 
       async function runAiTitleAndBullets() {
         const transcript = (transcriptEl.value || "").trim();
-        if (!transcript) {
-          setStatus("Add a transcript first.");
+        const summaryFallback = parseSummaryBullets().join("\n").trim();
+        const sourceText = transcript || summaryFallback;
+        if (!sourceText) {
+          setStatus("Add transcript or summary text first.");
           return;
         }
         const language = (langSelectEl && langSelectEl.value) ? langSelectEl.value : "en";
@@ -1219,7 +1223,7 @@
         btnAiGenerate.disabled = true;
         try {
           const sys = buildAiSystemPrompt(language);
-          const user = `Transcript:\n${transcript}`;
+          const user = `Journal content:\n${sourceText}`;
           const raw = await openAiChatCompletions(
             [
               { role: "system", content: sys },
@@ -1236,7 +1240,7 @@
           if (!parsed.title && (!parsed.bullets || !parsed.bullets.length)) {
             throw new Error("Model did not return usable title/bullets. Try a stronger model or retry.");
           }
-          applyAiToComposer(parsed.title || suggestTitle(transcript, language), parsed.bullets, language);
+          applyAiToComposer(parsed.title || suggestTitle(sourceText, language), parsed.bullets, language);
           setStatus("AI title + bullets ready. Review, then save.");
         } catch (e) {
           console.warn(e);
@@ -1765,6 +1769,7 @@
         summaryTextEl.addEventListener("input", () => {
           summaryDirty = true;
           btnSave.disabled = (transcriptEl.value || "").trim().length === 0;
+          updateAiButtonState();
         });
         titleEl.addEventListener("input", () => {
           titleDirty = true;
@@ -1773,6 +1778,9 @@
           currentLanguage = (langSelectEl && langSelectEl.value) ? langSelectEl.value : currentLanguage;
           scheduleSummaryRefresh();
         });
+        aiBaseUrl && aiBaseUrl.addEventListener("input", updateAiButtonState);
+        aiModel && aiModel.addEventListener("input", updateAiButtonState);
+        aiApiKey && aiApiKey.addEventListener("input", updateAiButtonState);
 
         btnSave.disabled = true;
         clearDraft();
