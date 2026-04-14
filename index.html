@@ -99,6 +99,12 @@
         cursor: not-allowed;
       }
 
+      button.ai-loading {
+        border-color: rgba(140, 255, 193, 0.65);
+        background: rgba(140, 255, 193, 0.28);
+        color: #e8fff2;
+      }
+
       .grid2 {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -409,7 +415,7 @@
 
         <div class="actions">
           <button id="btnRegenerate" type="button">Regenerate Summary</button>
-          <button id="btnAiGenerate" type="button" disabled title="Configure self-hosted AI below">AI: Title + bullets</button>
+          <button id="btnAiGenerate" type="button" title="Configure self-hosted AI below">AI: Title + bullets</button>
           <button id="btnSave" class="primary" type="button" disabled>Save Entry</button>
           <button id="btnClear" type="button">Clear Draft</button>
         </div>
@@ -1165,6 +1171,23 @@
         return { title, bullets: bullets.slice(0, 5) };
       }
 
+      function normalizeForCompare(s) {
+        return String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+      }
+
+      function bulletsTooCloseToTranscript(sourceText, bullets) {
+        const src = normalizeForCompare(sourceText);
+        if (!src || !Array.isArray(bullets) || bullets.length === 0) return false;
+        let copied = 0;
+        for (const b of bullets) {
+          const t = normalizeForCompare(b);
+          if (!t) continue;
+          // If bullet is mostly verbatim from transcript, it is not a useful summary.
+          if (t.length >= 18 && src.includes(t)) copied += 1;
+        }
+        return copied >= Math.ceil(bullets.length * 0.6);
+      }
+
       function applyAiToComposer(title, bullets, language) {
         if (title && titleEl) {
           titleEl.value = title;
@@ -1193,7 +1216,22 @@
           `Rules:\n` +
           `- title: one short headline for the entry (max 80 characters).\n` +
           `- bullets: 3 to 5 concise bullet points capturing themes and actions; each bullet one line, no numbering prefix inside strings.\n` +
+          `- DO NOT copy transcript sentences verbatim. Paraphrase and compress.\n` +
+          `- Do not repeat filler words, greetings, or thinking-out-loud text.\n` +
           `- Write in ${lang}, matching the transcript language.\n`
+        );
+      }
+
+      function buildAiRewritePrompt(language) {
+        const lang = language === "zh" ? "Chinese (Simplified)" : "English";
+        return (
+          `You rewrite draft summary bullets into concise, high-signal journal insights.\n` +
+          `Output ONLY valid JSON with schema {"bullets":["string",...]}.\n` +
+          `Rules:\n` +
+          `- 3 to 5 bullets.\n` +
+          `- Each bullet must be short, concrete, and non-repetitive.\n` +
+          `- Avoid copying long phrases from transcript.\n` +
+          `- Language: ${lang}.\n`
         );
       }
 
@@ -1230,6 +1268,9 @@
         currentLanguage = language;
         saveAiSettingsFromForm();
         setStatus("Calling self-hosted AI...");
+        const prevLabel = btnAiGenerate.textContent;
+        btnAiGenerate.textContent = "AI working...";
+        btnAiGenerate.classList.add("ai-loading");
         btnAiGenerate.disabled = true;
         try {
           const sys = buildAiSystemPrompt(language);
@@ -1247,6 +1288,29 @@
           } catch (e) {
             parsed = parseAiLooseFallback(raw);
           }
+
+          // If model mostly copied transcript lines, ask it once more to rewrite tighter bullets.
+          if (parsed.bullets && bulletsTooCloseToTranscript(sourceText, parsed.bullets)) {
+            const rewriteRaw = await openAiChatCompletions(
+              [
+                { role: "system", content: buildAiRewritePrompt(language) },
+                {
+                  role: "user",
+                  content: `Transcript:\n${sourceText}\n\nDraft bullets to rewrite:\n${parsed.bullets.map((b) => `- ${b}`).join("\n")}`,
+                },
+              ],
+              { temperature: 0.45, max_tokens: 500, timeoutMs: 90000 }
+            );
+            try {
+              const rewritten = parseAiJsonTitleBullets(rewriteRaw);
+              if (rewritten.bullets && rewritten.bullets.length) {
+                parsed.bullets = rewritten.bullets;
+              }
+            } catch (_) {
+              // Keep first-pass bullets if rewrite parse fails.
+            }
+          }
+
           if (!parsed.title && (!parsed.bullets || !parsed.bullets.length)) {
             throw new Error("Model did not return usable title/bullets. Try a stronger model or retry.");
           }
@@ -1260,6 +1324,8 @@
               "Tip: Ollama needs CORS for your site origin. Example: OLLAMA_ORIGINS=* ollama serve";
           }
         } finally {
+          btnAiGenerate.textContent = prevLabel || "AI: Title + bullets";
+          btnAiGenerate.classList.remove("ai-loading");
           updateAiButtonState();
         }
       }
