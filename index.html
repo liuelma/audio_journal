@@ -213,6 +213,128 @@
       .hidden {
         display: none !important;
       }
+
+      .modal {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding: 0;
+      }
+
+      @media (min-width: 520px) {
+        .modal {
+          align-items: center;
+        }
+      }
+
+      .modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+      }
+
+      .modal-panel {
+        position: relative;
+        width: 100%;
+        max-width: 560px;
+        max-height: 90vh;
+        overflow: auto;
+        margin: 0;
+        padding: 16px;
+        border-radius: 16px 16px 0 0;
+        background: #121a2e;
+        border: 1px solid var(--border);
+        box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.45);
+      }
+
+      @media (min-width: 520px) {
+        .modal-panel {
+          border-radius: 16px;
+          margin: 16px;
+        }
+      }
+
+      .modal-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+
+      .modal-header h2 {
+        margin: 0;
+        font-size: 17px;
+        line-height: 1.25;
+        flex: 1;
+      }
+
+      .view-block {
+        margin-top: 12px;
+      }
+
+      .view-block h3 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+
+      .view-body {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 14px;
+        line-height: 1.45;
+        color: rgba(255, 255, 255, 0.92);
+        padding: 12px;
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.22);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .view-body ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      details.ai-panel {
+        margin-bottom: 12px;
+      }
+
+      details.ai-panel > summary {
+        cursor: pointer;
+        font-weight: 700;
+        color: var(--muted);
+        padding: 4px 0;
+        list-style: none;
+      }
+
+      details.ai-panel > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .ai-input {
+        width: 100%;
+        border-radius: 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.25);
+        color: var(--text);
+        outline: none;
+        margin-top: 6px;
+      }
+
+      .ai-label {
+        display: block;
+        margin-top: 10px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
     </style>
   </head>
   <body>
@@ -287,9 +409,37 @@
 
         <div class="actions">
           <button id="btnRegenerate" type="button">Regenerate Summary</button>
+          <button id="btnAiGenerate" type="button" disabled title="Configure self-hosted AI below">AI: Title + bullets</button>
           <button id="btnSave" class="primary" type="button" disabled>Save Entry</button>
           <button id="btnClear" type="button">Clear Draft</button>
         </div>
+
+        <details class="ai-panel" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.10);">
+          <summary>Self-hosted AI (OpenAI-compatible API)</summary>
+          <p class="muted" style="margin: 10px 0 0;">
+            Uses your own server (e.g. Ollama, LM Studio, vLLM). The browser calls
+            <code style="font-size: 11px;">POST /v1/chat/completions</code>. Transcript is sent to that server only when you tap the AI button.
+            Note: If you open this app from HTTPS (GitHub Pages) and your API is plain HTTP on your LAN, the browser may block requests (mixed content). Use an HTTPS endpoint (tunnel or reverse proxy), or test from a setup that allows HTTP to your LAN.
+          </p>
+          <label class="ai-label" for="aiBaseUrl">API base URL (include <code>/v1</code>)</label>
+          <input
+            id="aiBaseUrl"
+            class="ai-input"
+            type="url"
+            inputmode="url"
+            placeholder="http://192.168.1.10:11434/v1"
+            autocomplete="off"
+          />
+          <label class="ai-label" for="aiModel">Model name</label>
+          <input id="aiModel" class="ai-input" type="text" placeholder="llama3.2" autocomplete="off" />
+          <label class="ai-label" for="aiApiKey">API key (optional; stored only on this device)</label>
+          <input id="aiApiKey" class="ai-input" type="password" placeholder="Leave empty for Ollama on LAN" autocomplete="off" />
+          <div class="actions" style="margin-top: 12px;">
+            <button type="button" id="btnAiSaveSettings">Save AI settings</button>
+            <button type="button" id="btnAiTest">Test connection</button>
+          </div>
+          <p class="muted" id="aiHint" style="margin-top: 10px;"></p>
+        </details>
       </div>
 
       <div class="card">
@@ -313,6 +463,29 @@
       </div>
     </div>
 
+    <div id="entryViewModal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" id="entryViewBackdrop" aria-label="Close"></div>
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="entryViewTitleHeading">
+        <div class="modal-header">
+          <h2 id="entryViewTitleHeading">Entry</h2>
+          <button type="button" id="entryViewClose">Close</button>
+        </div>
+        <p class="muted" id="entryViewDate"></p>
+        <div id="entryViewKeywords" class="muted"></div>
+        <div class="view-block">
+          <h3>Transcript</h3>
+          <div id="entryViewTranscript" class="view-body"></div>
+        </div>
+        <div class="view-block">
+          <h3>Summary</h3>
+          <ul id="entryViewSummary"></ul>
+        </div>
+        <div class="actions" style="margin-top: 16px;">
+          <button type="button" class="primary" id="entryViewEdit">Edit in composer</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       const $ = (id) => document.getElementById(id);
 
@@ -332,6 +505,30 @@
       const entriesEl = $("entries");
       const entriesCountEl = $("entriesCount");
       const searchEl = $("search");
+
+      const entryViewModal = $("entryViewModal");
+      const entryViewBackdrop = $("entryViewBackdrop");
+      const entryViewClose = $("entryViewClose");
+      const entryViewTitleHeading = $("entryViewTitleHeading");
+      const entryViewDate = $("entryViewDate");
+      const entryViewKeywords = $("entryViewKeywords");
+      const entryViewTranscript = $("entryViewTranscript");
+      const entryViewSummary = $("entryViewSummary");
+      const entryViewEdit = $("entryViewEdit");
+
+      const btnAiGenerate = $("btnAiGenerate");
+      const aiBaseUrl = $("aiBaseUrl");
+      const aiModel = $("aiModel");
+      const aiApiKey = $("aiApiKey");
+      const btnAiSaveSettings = $("btnAiSaveSettings");
+      const btnAiTest = $("btnAiTest");
+      const aiHint = $("aiHint");
+
+      const AI_LS_BASE = "journal_ai_base";
+      const AI_LS_MODEL = "journal_ai_model";
+      const AI_LS_KEY = "journal_ai_key";
+
+      let viewingEntry = null;
 
       // ===== IndexedDB (on-device storage) =====
       const DB_NAME = "journal-db";
@@ -818,15 +1015,263 @@
         return bullets.filter(Boolean);
       }
 
+      function suggestTitleFromFirstClause(transcript, language) {
+        const t = (transcript || "").replace(/\s+/g, " ").trim();
+        if (!t) return "";
+        const maxLen = language === "zh" ? 28 : 56;
+        if (language === "zh") {
+          const m = t.match(/^[^。！？]+/);
+          let s = (m ? m[0] : t).trim();
+          if (s.length > maxLen) s = s.slice(0, maxLen).trim() + "...";
+          return s;
+        }
+        const m = t.match(/^[^.!?]+[.!?]?/);
+        let s = (m ? m[0] : t.split(/\s+/).slice(0, 10).join(" ")).trim();
+        if (s.length > maxLen) s = s.slice(0, maxLen).trim() + "...";
+        if (s.length && /[a-z]/.test(s)) {
+          s = s[0].toUpperCase() + s.slice(1);
+        }
+        return s;
+      }
+
       function suggestTitleFromKeywords(transcript, language) {
         const kws = topKeywords(transcript, language === "zh" ? 4 : 6, language);
         if (!kws.length) return "";
         if (language === "zh") {
-          // Prefer 1-2 short phrases.
           return kws.slice(0, 2).join(" ");
         }
         const picked = kws.slice(0, 3).map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w));
         return picked.join(" • ");
+      }
+
+      function suggestTitle(transcript, language) {
+        const fromClause = suggestTitleFromFirstClause(transcript, language);
+        if (fromClause && fromClause.length >= 6) return fromClause;
+        return suggestTitleFromKeywords(transcript, language);
+      }
+
+      // ===== Self-hosted LLM (OpenAI-compatible /v1/chat/completions) =====
+      function loadAiSettingsIntoForm() {
+        if (!aiBaseUrl || !aiModel || !aiApiKey) return;
+        aiBaseUrl.value = localStorage.getItem(AI_LS_BASE) || "";
+        aiModel.value = localStorage.getItem(AI_LS_MODEL) || "";
+        aiApiKey.value = localStorage.getItem(AI_LS_KEY) || "";
+      }
+
+      function saveAiSettingsFromForm() {
+        if (!aiBaseUrl || !aiModel || !aiApiKey) return;
+        localStorage.setItem(AI_LS_BASE, (aiBaseUrl.value || "").trim());
+        localStorage.setItem(AI_LS_MODEL, (aiModel.value || "").trim());
+        localStorage.setItem(AI_LS_KEY, (aiApiKey.value || "").trim());
+        if (aiHint) {
+          aiHint.textContent = "AI settings saved on this device.";
+        }
+        updateAiButtonState();
+      }
+
+      function getAiConfig() {
+        const base = (aiBaseUrl && aiBaseUrl.value) ? aiBaseUrl.value.trim() : localStorage.getItem(AI_LS_BASE) || "";
+        const model = (aiModel && aiModel.value) ? aiModel.value.trim() : localStorage.getItem(AI_LS_MODEL) || "";
+        const key = (aiApiKey && aiApiKey.value) ? aiApiKey.value.trim() : localStorage.getItem(AI_LS_KEY) || "";
+        return { base, model, key };
+      }
+
+      function chatCompletionsUrl(baseRaw) {
+        const b = String(baseRaw || "").trim().replace(/\/+$/, "");
+        if (!b) throw new Error("Missing API base URL");
+        if (b.endsWith("/chat/completions")) return b;
+        if (b.endsWith("/v1")) return `${b}/chat/completions`;
+        if (b.includes("/v1")) return `${b.replace(/\/+$/, "")}/chat/completions`;
+        return `${b}/v1/chat/completions`;
+      }
+
+      async function openAiChatCompletions(messages, options) {
+        const { base, model, key } = getAiConfig();
+        if (!base) throw new Error("Set API base URL in Self-hosted AI settings.");
+        if (!model) throw new Error("Set model name in Self-hosted AI settings.");
+        const url = chatCompletionsUrl(base);
+        const headers = { "Content-Type": "application/json" };
+        if (key) headers.Authorization = `Bearer ${key}`;
+        const body = {
+          model,
+          messages,
+          temperature: typeof options.temperature === "number" ? options.temperature : 0.35,
+          max_tokens: options.max_tokens != null ? options.max_tokens : 800,
+          stream: false,
+        };
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), options.timeoutMs || 120000);
+        let res;
+        try {
+          res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: ctrl.signal });
+        } catch (err) {
+          clearTimeout(to);
+          const msg = String(err && err.message ? err.message : err);
+          if (msg.includes("aborted") || msg.includes("Abort")) {
+            throw new Error("Request timed out. Is the model running?");
+          }
+          if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+            throw new Error(
+              "Network error (often CORS). On Ollama set OLLAMA_ORIGINS=* or allow your Pages domain. From phone use your PC LAN IP, not localhost."
+            );
+          }
+          throw err;
+        }
+        clearTimeout(to);
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (_) {
+          throw new Error(`Bad response (${res.status}). ${text.slice(0, 200)}`);
+        }
+        if (!res.ok) {
+          const errMsg = (data && (data.error && (data.error.message || data.error))) || text.slice(0, 300);
+          throw new Error(`HTTP ${res.status}: ${errMsg}`);
+        }
+        const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+        if (typeof content !== "string") throw new Error("Unexpected API response shape.");
+        return content;
+      }
+
+      function parseAiJsonTitleBullets(raw) {
+        let t = String(raw || "").trim();
+        const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (fence) t = fence[1].trim();
+        const firstBrace = t.indexOf("{");
+        const lastBrace = t.lastIndexOf("}");
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+          t = t.slice(firstBrace, lastBrace + 1);
+        }
+        const obj = JSON.parse(t);
+        const title = String(obj.title || "").trim();
+        let bullets = obj.bullets;
+        if (!Array.isArray(bullets) && typeof obj.bullets === "string") {
+          bullets = obj.bullets.split(/\n+/).map((x) => x.trim()).filter(Boolean);
+        }
+        if (!Array.isArray(bullets)) bullets = [];
+        bullets = bullets.map((b) => String(b || "").trim()).filter(Boolean);
+        return { title, bullets };
+      }
+
+      function parseAiLooseFallback(raw) {
+        const lines = String(raw || "").split("\n").map((x) => x.trim()).filter(Boolean);
+        const bullets = [];
+        for (const line of lines) {
+          const m = line.match(/^[\-\*\d\.\)]\s*(.+)$/);
+          if (m) bullets.push(m[1].trim());
+        }
+        const title = bullets.length ? bullets[0].slice(0, 80) : "";
+        return { title, bullets: bullets.slice(0, 5) };
+      }
+
+      function applyAiToComposer(title, bullets, language) {
+        if (title && titleEl) {
+          titleEl.value = title;
+          titleDirty = true;
+        }
+        const list = (bullets || []).slice(0, 8).map((b) => String(b).trim()).filter(Boolean);
+        summaryTextEl.value = list.length ? list.map((b) => `- ${b}`).join("\n") : "";
+        summaryDirty = true;
+        keywordsEl.innerHTML = "";
+        const tr = (transcriptEl.value || "").trim();
+        const kws = topKeywords(tr, 6, language);
+        for (const k of kws) {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.textContent = k;
+          keywordsEl.appendChild(pill);
+        }
+        btnSave.disabled = !tr;
+      }
+
+      function buildAiSystemPrompt(language) {
+        const lang = language === "zh" ? "Chinese (Simplified)" : "English";
+        return (
+          `You summarize personal journal transcripts. Output ONLY valid JSON, no markdown, no explanation.\n` +
+          `Schema: {"title":"string","bullets":["string",...]}\n` +
+          `Rules:\n` +
+          `- title: one short headline for the entry (max 80 characters).\n` +
+          `- bullets: 3 to 5 concise bullet points capturing themes and actions; each bullet one line, no numbering prefix inside strings.\n` +
+          `- Write in ${lang}, matching the transcript language.\n`
+        );
+      }
+
+      function updateAiButtonState() {
+        if (!btnAiGenerate) return;
+        const { base, model } = getAiConfig();
+        const hasText = (transcriptEl.value || "").trim().length > 0;
+        const ok = !!(base && model && hasText);
+        btnAiGenerate.disabled = !ok;
+        btnAiGenerate.title = ok ? "Call your self-hosted model" : "Set API base + model below, and add a transcript";
+      }
+
+      async function runAiTitleAndBullets() {
+        const transcript = (transcriptEl.value || "").trim();
+        if (!transcript) {
+          setStatus("Add a transcript first.");
+          return;
+        }
+        const language = (langSelectEl && langSelectEl.value) ? langSelectEl.value : "en";
+        currentLanguage = language;
+        saveAiSettingsFromForm();
+        setStatus("Calling self-hosted AI...");
+        btnAiGenerate.disabled = true;
+        try {
+          const sys = buildAiSystemPrompt(language);
+          const user = `Transcript:\n${transcript}`;
+          const raw = await openAiChatCompletions(
+            [
+              { role: "system", content: sys },
+              { role: "user", content: user },
+            ],
+            { temperature: 0.35, max_tokens: 900, timeoutMs: 120000 }
+          );
+          let parsed;
+          try {
+            parsed = parseAiJsonTitleBullets(raw);
+          } catch (e) {
+            parsed = parseAiLooseFallback(raw);
+          }
+          if (!parsed.title && (!parsed.bullets || !parsed.bullets.length)) {
+            throw new Error("Model did not return usable title/bullets. Try a stronger model or retry.");
+          }
+          applyAiToComposer(parsed.title || suggestTitle(transcript, language), parsed.bullets, language);
+          setStatus("AI title + bullets ready. Review, then save.");
+        } catch (e) {
+          console.warn(e);
+          setStatus(String(e && e.message ? e.message : e));
+          if (aiHint) {
+            aiHint.textContent =
+              "Tip: Ollama needs CORS for your site origin. Example: OLLAMA_ORIGINS=* ollama serve";
+          }
+        } finally {
+          updateAiButtonState();
+        }
+      }
+
+      async function runAiConnectionTest() {
+        saveAiSettingsFromForm();
+        setStatus("Testing AI connection...");
+        if (aiHint) aiHint.textContent = "";
+        try {
+          const out = await openAiChatCompletions([{ role: "user", content: "Reply with exactly: OK" }], {
+            temperature: 0,
+            max_tokens: 16,
+            timeoutMs: 30000,
+          });
+          setStatus(`AI test OK: ${String(out).trim().slice(0, 80)}`);
+          if (aiHint) aiHint.textContent = "Connection works. You can use AI: Title + bullets.";
+        } catch (e) {
+          console.warn(e);
+          setStatus(String(e && e.message ? e.message : e));
+          if (aiHint) {
+            aiHint.textContent =
+              "If this failed with CORS: configure your server to allow your GitHub Pages origin, or use a small reverse proxy.";
+          }
+        } finally {
+          updateAiButtonState();
+        }
       }
 
       async function startSpeechRecognition(SpeechCtor, language) {
@@ -941,6 +1386,7 @@
             mediaRecorder.stop();
           } catch (_) {}
         }
+        updateAiButtonState();
       }
 
       const scheduleSummaryRefresh = debounce(() => {
@@ -949,6 +1395,7 @@
           summaryTextEl.value = "";
           keywordsEl.innerHTML = "";
           btnSave.disabled = true;
+          updateAiButtonState();
           return;
         }
         // While editing, auto-regenerate unless user has manually edited summary/title.
@@ -958,10 +1405,11 @@
           } catch (_) {}
         }
         if (!titleDirty) {
-          const suggested = suggestTitleFromKeywords(t, currentLanguage);
+          const suggested = suggestTitle(t, currentLanguage);
           if (suggested) titleEl.value = suggested;
         }
         btnSave.disabled = false;
+        updateAiButtonState();
       }, 250);
 
       async function startRecordingFlow() {
@@ -1090,7 +1538,7 @@
           id: uid(),
           createdAt,
           language,
-          title: title || suggestTitleFromKeywords(transcript, language) || createdAt,
+          title: title || suggestTitle(transcript, language) || createdAt,
           transcript,
           summaryBullets: bullets,
           keywords,
@@ -1121,6 +1569,7 @@
         const filtered = q
           ? all.filter((e) => {
               const hay = [
+                e.title || "",
                 e.createdAt || "",
                 e.transcript || "",
                 (e.summaryBullets || []).join(" "),
@@ -1170,22 +1619,7 @@
 
           const viewBtn = document.createElement("button");
           viewBtn.textContent = "View";
-          viewBtn.onclick = () => {
-            transcriptEl.value = e.transcript || "";
-            if (langSelectEl) {
-              langSelectEl.value = e.language || "en";
-            }
-            if (titleEl) titleEl.value = e.title || "";
-            // Reset segments; loaded entries may not have timing boundaries.
-            finalSegments = [];
-            interimSegment = "";
-            summaryDirty = false;
-            titleDirty = false;
-            renderStructuredBullets(e.transcript || "", e.language || "en");
-            btnSave.disabled = false;
-            setStatus("Loaded entry into editor. Edit and save as a new entry if needed.");
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          };
+          viewBtn.onclick = () => openEntryView(e);
 
           const delBtn = document.createElement("button");
           delBtn.textContent = "Delete";
@@ -1219,6 +1653,7 @@
         summaryDirty = false;
         titleDirty = false;
         if (titleEl) titleEl.value = "";
+        updateAiButtonState();
       }
 
       function escapeHtml(s) {
@@ -1238,6 +1673,72 @@
               return c;
           }
         });
+      }
+
+      function openEntryView(e) {
+        viewingEntry = e;
+        entryViewTitleHeading.textContent = ((e.title || "").trim() || "Untitled");
+        const date = new Date(e.createdAt);
+        const pretty = isNaN(date.getTime()) ? (e.createdAt || "") : date.toLocaleString();
+        entryViewDate.textContent = pretty ? `Saved ${pretty}` : "";
+
+        entryViewKeywords.innerHTML = "";
+        const kws = e.keywords || [];
+        for (const k of kws) {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.textContent = k;
+          entryViewKeywords.appendChild(pill);
+        }
+
+        entryViewTranscript.textContent = e.transcript || "";
+
+        entryViewSummary.innerHTML = "";
+        const bullets = e.summaryBullets || [];
+        if (bullets.length) {
+          for (const b of bullets) {
+            const li = document.createElement("li");
+            li.textContent = b;
+            entryViewSummary.appendChild(li);
+          }
+        } else {
+          const li = document.createElement("li");
+          li.className = "muted";
+          li.style.listStyle = "none";
+          li.style.marginLeft = "-18px";
+          li.textContent = "No summary saved.";
+          entryViewSummary.appendChild(li);
+        }
+
+        entryViewModal.classList.remove("hidden");
+        entryViewModal.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+      }
+
+      function closeEntryView() {
+        viewingEntry = null;
+        entryViewModal.classList.add("hidden");
+        entryViewModal.setAttribute("aria-hidden", "true");
+        document.body.style.overflow = "";
+      }
+
+      function loadEntryIntoComposer(e) {
+        transcriptEl.value = e.transcript || "";
+        if (langSelectEl) {
+          langSelectEl.value = e.language || "en";
+        }
+        if (titleEl) {
+          titleEl.value = e.title || "";
+        }
+        currentLanguage = (e.language || "en");
+        finalSegments = [];
+        interimSegment = "";
+        summaryDirty = false;
+        titleDirty = false;
+        renderStructuredBullets(e.transcript || "", e.language || "en");
+        btnSave.disabled = !(e.transcript || "").trim();
+        setStatus("Loaded into composer. Edit and save (creates a new entry).");
+        window.scrollTo({ top: 0, behavior: "smooth" });
       }
 
       // ===== Init =====
@@ -1275,8 +1776,23 @@
 
         btnSave.disabled = true;
         clearDraft();
+        loadAiSettingsIntoForm();
         await refreshEntries();
         setStatus("Ready.");
+        updateAiButtonState();
+
+        btnAiGenerate.addEventListener("click", runAiTitleAndBullets);
+        btnAiSaveSettings.addEventListener("click", saveAiSettingsFromForm);
+        btnAiTest.addEventListener("click", runAiConnectionTest);
+
+        entryViewClose.addEventListener("click", closeEntryView);
+        entryViewBackdrop.addEventListener("click", closeEntryView);
+        entryViewEdit.addEventListener("click", () => {
+          if (viewingEntry) {
+            loadEntryIntoComposer(viewingEntry);
+          }
+          closeEntryView();
+        });
       }
 
       init().catch((e) => {
