@@ -1204,14 +1204,24 @@
         const hasSummary = (summaryTextEl.value || "").trim().length > 0;
         const hasText = hasTranscript || hasSummary;
         const ok = !!(base && model && hasText);
-        btnAiGenerate.disabled = !ok;
-        btnAiGenerate.title = ok ? "Call your self-hosted model" : "Set API base + model below, and add transcript/summary text";
+        // Keep this always clickable so users can see clear guidance in status messages.
+        btnAiGenerate.disabled = false;
+        btnAiGenerate.title = ok ? "Call your self-hosted model" : "Tap to see what is missing";
       }
 
       async function runAiTitleAndBullets() {
         const transcript = (transcriptEl.value || "").trim();
         const summaryFallback = parseSummaryBullets().join("\n").trim();
         const sourceText = transcript || summaryFallback;
+        const { base, model } = getAiConfig();
+        if (!base) {
+          setStatus("Please set AI Base URL first, then tap Save AI settings.");
+          return;
+        }
+        if (!model) {
+          setStatus("Please set AI model name first, then tap Save AI settings.");
+          return;
+        }
         if (!sourceText) {
           setStatus("Add transcript or summary text first.");
           return;
